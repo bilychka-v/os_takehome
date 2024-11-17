@@ -10,9 +10,8 @@
 // Типи для функцій
 using FunctionType = double (*)(int);
 
-// Простий приклад функції обчислення
 double function_g(int x) {
-    return x * x * 1.5; // Наприклад, обчислення квадрата з коефіцієнтом
+    return x * x * 1.5;
 }
 
 // Глобальні змінні для обробки сигналів
@@ -32,15 +31,14 @@ void signalHandler(int signum) {
     exit(1);
 }
 
-// Клас для управління компонентами
 class Manager {
 private:
-    std::map<std::string, pid_t> components; // Компоненти: ім'я -> PID
-    std::map<std::string, int> pipes;        // Канали: ім'я -> pipe fd
+    std::map<std::string, pid_t> components;
+    std::map<std::string, int> pipes;
 
 public:
     Manager() {
-        signal(SIGINT, signalHandler); // Реєстрація обробника сигналів
+        signal(SIGINT, signalHandler);
     }
 
     // Додати новий компонент
