@@ -7,7 +7,7 @@
 #include <string>
 #include <sstream>
 #include <cmath>
-
+#include <iterator>
 
 using FunctionType = double (*)(int);
 
@@ -33,7 +33,7 @@ std::map<std::string, pid_t> components; // Компоненти групи
 std::map<std::string, int> pipes; // Pipe для кожного компонента
 std::map<std::string, double> results;  // Збереження результатів
 
-std::string currentGroup = "";  
+std::string currentGroup = "";
 
 // Обробник сигналу для ручного скасування
 void signalHandler(int signum) {
@@ -94,10 +94,11 @@ public:
             close(pipefd[1]); // Закриваємо запис
             components[name] = pid; // Зберігаємо PID
             pipes[name] = pipefd[0]; // Зберігаємо pipe
+            activeProcesses[pid] = name; // Додаємо до активних процесів
         }
     }
 
-    // Запустити всі компоненти та отримати результати
+    // Запустити всі компоненти
     void run() {
         if (currentGroup.empty()) {
             std::cerr << "No group created yet. Please create a group first.\n";
@@ -107,33 +108,53 @@ public:
         std::cout << "Running group " << currentGroup << "...\n";
 
         for (const auto& [name, pid] : components) {
-            int status;
-            waitpid(pid, &status, 0); // Чекаємо завершення процесу
-
-            if (WIFEXITED(status)) {
-                double result;
-                read(pipes[name], &result, sizeof(result)); // Отримуємо результат
-                results[name] = result;  // Зберігаємо результат
-                std::cout << "Component " << name << " finished, result: " << result << '\n';
-            } else {
-                std::cerr << "Component " << name << " failed.\n";
-            }
-
-            close(pipes[name]); // Закриваємо pipe
+            std::cout << "Component " << name << " is running (PID: " << pid << ").\n";
         }
-        components.clear();
-        pipes.clear();
     }
 
     // Вивести статуси компонентів
-    void status() const {
+    void status() {
         if (currentGroup.empty()) {
             std::cerr << "No group created yet. Please create a group first.\n";
             return;
         }
 
-        for (const auto& [name, pid] : components) {
-            std::cout << "Component " << name << " running (PID: " << pid << ")\n";
+        for (auto it = activeProcesses.begin(); it != activeProcesses.end(); ) {
+            pid_t pid = it->first;
+            const std::string& name = it->second;
+            int status;
+            pid_t result = waitpid(pid, &status, WNOHANG); // Перевіряємо статус без блокування
+
+            if (result == 0) {
+                // Процес ще виконується
+                std::cout << "Component " << name << " is still running (PID: " << pid << ").\n";
+                ++it; // Перехід до наступного
+            } else if (result == pid) {
+                // Процес завершився
+                if (WIFEXITED(status)) {
+                    double resultValue;
+                    if (read(pipes[name], &resultValue, sizeof(resultValue)) > 0) {
+                        results[name] = resultValue; // Зберігаємо результат
+                        std::cout << "Component " << name << " finished successfully, result: " << resultValue << "\n";
+                    } else {
+                        std::cerr << "Component " << name << " finished, but result is unavailable.\n";
+                    }
+                } else {
+                    std::cerr << "Component " << name << " terminated abnormally.\n";
+                }
+
+                close(pipes[name]); // Закриваємо pipe
+                pipes.erase(name);  // Видаляємо з мапи
+                it = activeProcesses.erase(it); // Видаляємо зі списку активних процесів
+            } else {
+                // Процес не знайдено
+                std::cerr << "Component " << name << " status unknown.\n";
+                ++it;
+            }
+        }
+
+        if (activeProcesses.empty()) {
+            std::cout << "No active components are running.\n";
         }
     }
 
@@ -145,7 +166,7 @@ public:
         }
 
         for (const auto& [name, result] : results) {
-            std::cout << "Component " << name << " result: " << result << '\n';
+            std::cout << "Component " << name << " result: " << result << "\n";
         }
     }
 
@@ -154,7 +175,9 @@ public:
         components.clear();
         pipes.clear();
         results.clear();
+        activeProcesses.clear();
         currentGroup.clear();  // Очищаємо групу
+        std::cout << "Cleared all components and group.\n";
     }
 };
 
@@ -195,38 +218,40 @@ int main() {
                 std::cerr << "Usage: new <component_name> <arg>\n";
                 continue;
             }
-            std::string componentName = tokens[1];
             int arg = std::stoi(tokens[2]);
-
-            // Додавання компонентів за типом
-            if (componentName == "f1") {
-                mgr.addComponent(componentName, function_f, arg);
-                std::cout << "Component " << componentName << " added to group " << currentGroup << " with argument " << arg << ".\n";
-            } else if (componentName == "f2") {
-                mgr.addComponent(componentName, function_g, arg);
-                std::cout << "Component " << componentName << " added to group " << currentGroup << " with argument " << arg << ".\n";
-            } else if (componentName == "f3") {
-                mgr.addComponent(componentName, function_h, arg);
-                std::cout << "Component " << componentName << " added to group " << currentGroup << " with argument " << arg << ".\n";
+            if (tokens[1] == "g") {
+                mgr.addComponent(tokens[1], function_g, arg);
+            } else if (tokens[1] == "h") {
+                mgr.addComponent(tokens[1], function_h, arg);
+            } else if (tokens[1] == "f") {
+                mgr.addComponent(tokens[1], function_f, arg);
             } else {
-                std::cerr << "Unknown component name: " << componentName << ". Use f1, f2, or f3.\n";
+                std::cerr << "Unknown component type: " << tokens[1] << "\n";
             }
         } else if (tokens[0] == "run") {
             mgr.run();
-        } else if (tokens[0] == "summary") {
-            mgr.summary();
         } else if (tokens[0] == "status") {
             mgr.status();
+        } else if (tokens[0] == "summary") {
+            mgr.summary();
         } else if (tokens[0] == "clear") {
             mgr.clear();
-            std::cout << "Cleared all components and group.\n";
         } else if (tokens[0] == "exit") {
-            std::cout << "Exiting...\n";
+            std::cout << "Exiting.\n";
             break;
         } else {
-            std::cerr << "Unknown command. Type 'help' for commands.\n";
+            std::cerr << "Unknown command: " << tokens[0] << ". Type 'help' for a list of commands.\n";
         }
     }
 
+    // Завершуємо всі активні процеси перед виходом
+    for (const auto& [pid, name] : activeProcesses) {
+        kill(pid, SIGKILL);
+        std::cerr << "Terminated active component: " << name << " (PID: " << pid << ").\n";
+    }
+
+    std::cout << "Program terminated. Goodbye!\n";
     return 0;
 }
+
+
