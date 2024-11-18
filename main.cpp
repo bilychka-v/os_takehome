@@ -66,6 +66,7 @@ public:
     }
 
     // Додати новий компонент
+    // Оновлений метод для додавання компонента
     void addComponent(const std::string& name, FunctionType func, int arg) {
         if (currentGroup.empty()) {
             std::cerr << "No group created yet. Please create a group first.\n";
@@ -95,8 +96,12 @@ public:
             components[name] = pid; // Зберігаємо PID
             pipes[name] = pipefd[0]; // Зберігаємо pipe
             activeProcesses[pid] = name; // Додаємо до активних процесів
+
+            // Додаємо повідомлення про додавання компонента
+            std::cout << "new component " << name << " " << arg << " added to group\n";
         }
     }
+
 
     // Запустити всі компоненти
     void run() {
